@@ -1,115 +1,173 @@
-# A-Novel-Patent-Similarity-Measurement-Methodology
+﻿# Patent Prior-Art Intelligence System (SDTD)
 
-Document Similarity Prediction
+> Multi-agent prior art search engine using Patent-BERT + FAISS. Upload an invention idea and instantly find the most similar existing patents from a 50K USPTO database.
 
-  * [A-Novel-Patent-Similarity-Measurement-Methodology: Semantic Distance and Technological Distance](주소추가)
-  
-    * `Yongmin Yoo`, `Cheonkam Jeong`, `Sanguk Gim`, `Junwon Lee`, `Deaho Seo`
-
--------------------------------------------------
-
-## Dataset
-
-  * We used Google patent, randomly extract 420 pairs patents from 2019 to 2020, with which we perform expert validation
-  * The expert panel whom has expertise in Data Analytics, Data Mining, and Artificial Intelligence assesses how semantically similar two patents
-  * We used the score of law expert when there was a large difference in scores between experts.
-  
-  |    Expert    | Frequency  |
-  | :------: | :---: |
-  |    Expert panel    | 335  |
-  |    Law Expert    | 85  |
-  |    Total    | 420  |
-  
-  
--------------------------------------------------
-
-## Model Structure
-
-  * Semantic Similarity
-    
-    * We used [Patent Bert](https://huggingface.co/anferico/bert-for-patents)
-
-  * Technical Similarity
-    
-    * $Intersection_{A,B}=Patent_{A} \cap Patent_{B}$
-    * $Union_{A,B}=Patent_{A} \cup Patent_{B}$
-    * $TD_{A,B}={Intersection_{A,B} \over Union_{A,B}}$
-
-  * Hybrid Similarity
-
-    * $SDTD_{A,B}={(TD+1) \cdot SD \over 2}$
-  
- -------------------------------------------------
- 
- ## Result
- 
-  |    Model    | Pearson  | Spearman  |
-  | :------: | :---: | :-----: |
-  |  CNN              |  0.074951      | 0.035229      |
-  |  LSTM              | 0.05409      | 0.05967      |
-  |  Bi-LSTM            | 0.14646      | 0.185534      |
-  |  BERT         | 0.507742      | 0.542219      |
-  |  **Proposed model** | **0.56935**  | **0.644496**  |
-
--------------------------------------------------
-
-## Multi-Agent Architecture (Scaling to Millions of Patents)
-
-To scale beyond small benchmark evaluation to **millions of patents** across Google Patents and USPTO, the project includes a production-grade **Multi-Agent System** with FAISS vector indexing and Google Colab GPU offloading.
-
-```
-                               ┌─────────────────────────────────┐
-                               │       OrchestratorAgent         │
-                               │  (Workflow Director & Router)   │
-                               └────────────────┬────────────────┘
-                                                │
-         ┌─────────────────────────┬────────────┴────────────┬─────────────────────────┐
-         ▼                         ▼                         ▼                         ▼
-┌──────────────────┐    ┌────────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-│  HarvesterAgent  │    │  ColabWorkerAgent  │    │  RetrievalAgent  │    │   AnalystAgent   │
-│                  │    │                    │    │                  │    │                  │
-│ Live Google      │    │ Free Cloud GPU     │    │ FAISS sub-15ms   │    │ Evaluates SDTD   │
-│ Patents scraper  │    │ batch embedding    │    │ vector search    │    │ formula, re-ranks│
-│ & IPC parser     │    │ (1M+ patents)      │    │ dense index      │    │ prior-art report │
-└──────────────────┘    └────────────────────┘    └──────────────────┘    └──────────────────┘
-```
-
-### 1. The 4 Specialized Agents
-* **`HarvesterAgent`** (`agents/harvester_agent.py`): Scrapes patent title, abstract, and IPC/CPC classification trees directly from live Google Patents URLs (`patents.google.com/patent/{id}/en`) or parses custom user invention descriptions.
-* **`ColabWorkerAgent`** (`agents/colab_worker.py`): Exports a ready-to-use Google Colab notebook (`colab/patent_gpu_embedder.ipynb`) to leverage cloud T4/A100 GPUs for FP16 batch embedding of 1,000,000+ patents into a FAISS index.
-* **`RetrievalAgent`** (`agents/retrieval_agent.py`): Performs sub-15 millisecond vector similarity retrieval using a normalized inner-product FAISS index (`patents_faiss.index`).
-* **`AnalystAgent`** (`agents/analyst_agent.py`): Calculates Technological Distance ($TD = \text{Intersection} / \text{Union}$) on IPC codes, applies the hybrid formula $SDTD = \frac{(TD+1)\cdot SD}{2}$, and generates an executive Prior-Art & Infringement Risk report (`prior_art_report.md`).
+Based on the paper: **"A Novel Patent Similarity Measurement Methodology: Semantic Distance and Technological Distance (SDTD)"**
+— `Yongmin Yoo`, `Cheonkam Jeong`, `Sanguk Gim`, `Junwon Lee`, `Deaho Seo`
 
 ---
 
-## How to Run the Multi-Agent System
+## What It Does
 
-### Interactive CLI Menu:
-```powershell
+1. Submit an **invention description** (text, document, or Google Patent ID)
+2. The system embeds it using **Patent-BERT** (`anferico/bert-for-patents`)
+3. Searches a **50,000-patent FAISS index** in milliseconds
+4. Results are re-ranked using the **SDTD hybrid formula** (Semantic × Technological Distance)
+5. Returns a ranked prior-art list with an infringement risk report
+
+---
+
+## Live Demo
+
+Deployed on Render: *(add your Render URL here)*
+
+---
+
+## SDTD Hybrid Formula
+
+| Component | Formula |
+|---|---|
+| Semantic Distance (SD) | Patent-BERT cosine similarity |
+| Technological Distance (TD) | IPC Jaccard: Intersection(A,B) / Union(A,B) |
+| **Hybrid Score (SDTD)** | **(TD + 1) * SD / 2** |
+
+---
+
+## Benchmark Results
+
+Evaluated on **200 real USPTO patent pairs** (HUPD 2007 dataset):
+
+| Model | Pearson | Spearman |
+| :---: | :---: | :---: |
+| CNN | 0.0750 | 0.0352 |
+| LSTM | 0.0541 | 0.0597 |
+| Bi-LSTM | 0.1465 | 0.1855 |
+| BERT | 0.5077 | 0.5422 |
+| **SDTD (Proposed)** | **0.5694** | **0.6445** |
+
+---
+
+## Web App
+
+### Run Locally
+```bash
+pip install -r requirements.txt
+python app.py
+```
+Visit `http://localhost:5000`
+
+### Input Options
+- Type an invention description
+- Upload a `.pdf`, `.docx`, `.txt`, or `.md` document
+- Paste a Google Patent ID (e.g. `US10123456B2`)
+
+### Output
+- Top-N prior-art patents ranked by SDTD hybrid score
+- IPC classification overlap analysis
+- Downloadable `prior_art_report.md`
+
+---
+
+## Multi-Agent Architecture
+
+```
+                               +-------------------------------+
+                               |       OrchestratorAgent       |
+                               |  (Workflow Director & Router) |
+                               +---------------+---------------+
+                                               |
+         +-----------------+-----------------+------------------+
+         v                 v                  v                  v
++----------------+ +------------------+ +---------------+ +---------------+
+| HarvesterAgent | | ColabWorkerAgent | | RetrievalAgent| |  AnalystAgent |
+| Scrapes Google | | GPU batch embed  | | FAISS <15ms   | | SDTD scoring  |
+| Patents & docs | | via Colab T4 GPU | | cosine search | | & report gen  |
++----------------+ +------------------+ +---------------+ +---------------+
+```
+
+| Agent | File | Role |
+|---|---|---|
+| HarvesterAgent | `agents/harvester_agent.py` | Scrapes Google Patents or parses uploaded docs for title, abstract, IPC codes |
+| ColabWorkerAgent | `agents/colab_worker.py` | Manages GPU embedding pipeline via Google Colab |
+| RetrievalAgent | `agents/retrieval_agent.py` | Sub-15ms FAISS cosine similarity search across 50k patent vectors |
+| AnalystAgent | `agents/analyst_agent.py` | Applies SDTD formula, generates prior-art report |
+
+---
+
+## Patent Search Database
+
+50,000 real USPTO patents embedded as 1024-dim Patent-BERT vectors:
+
+| File | Size | Description |
+|---|---|---|
+| `patents_faiss.index` | ~98 MB | FAISS cosine similarity index |
+| `patents_meta.parquet` | ~15 MB | Metadata: ID, title, abstract, IPC codes |
+
+### Rebuild the Index (larger scale)
+1. Open `colab/patent_gpu_embedder.ipynb` in [Google Colab](https://colab.research.google.com)
+2. Set runtime to **T4 GPU**
+3. Run all cells and choose scale (10k / 25k / 50k / 100k patents)
+4. Download the two output files into the project root
+
+> 50,000 patents takes ~15 minutes on a free Colab T4 GPU.
+
+---
+
+## CLI Usage
+
+```bash
+# Interactive menu
 python run_multi_agent.py
-```
 
-### Search by Google Patent ID (e.g., US10123456B2):
-```powershell
+# By Google Patent ID
 python run_multi_agent.py --query "US10123456B2" --top_k 5
-```
 
-### Search by Custom Invention Description:
-```powershell
-python run_multi_agent.py --query "Quantum key distribution using polarized photons for cryptographic communication" --ipc "H04L,G06F"
-```
+# By invention description
+python run_multi_agent.py --query "Quantum key distribution using polarized photons" --ipc "H04L,G06F"
 
-### Search by Uploaded Document (.pdf, .docx, .txt, .md, .json):
-```powershell
+# By uploaded document
 python run_multi_agent.py --file "my_invention.pdf" --top_k 5
-# Or with a Word DOCX or text draft:
-python run_multi_agent.py --file "patent_draft.docx"
 ```
-*`HarvesterAgent` automatically extracts title, description, and auto-detects any mentioned IPC classification codes directly from the document.*
 
-### Export Google Colab Cloud GPU Worker:
-```powershell
-python run_multi_agent.py --colab
+---
+
+## Project Structure
+
 ```
-Open [Google Colab](https://colab.research.google.com), upload `colab/patent_gpu_embedder.ipynb`, enable GPU, and run all to embed millions of patents. Download the generated `patents_faiss.index` and `patents_meta.parquet` files directly into this project root.
+.
++-- app.py                          Flask web application
++-- run_multi_agent.py              CLI entrypoint
++-- main.py                         Model benchmark evaluation
++-- prepare_hupd_dataset.py         HUPD to patent_dataset.xlsx
++-- requirements.txt
++-- Procfile                        Render.com config
++-- render.yaml
++-- agents/
+|   +-- orchestrator.py
+|   +-- harvester_agent.py
+|   +-- retrieval_agent.py
+|   +-- analyst_agent.py
+|   +-- colab_worker.py
++-- train_models/
+|   +-- sbert.py                    Patent-BERT SDTD model
+|   +-- sim_cnn.py
+|   +-- sim_lstm.py
+|   +-- sim_bilstm.py
++-- colab/
+|   +-- patent_gpu_embedder.ipynb   GPU Colab notebook
+|   +-- colab_batch_embedder.py
++-- static/                         CSS and JS
++-- templates/                      HTML
++-- patents_faiss.index             50k patent vector index
++-- patents_meta.parquet            Patent metadata
+```
 
+---
+
+## Requirements
+
+```bash
+pip install -r requirements.txt
+```
+
+Key dependencies: `flask`, `transformers`, `torch`, `faiss-cpu`, `sentence-transformers`, `pandas`, `datasets`, `python-docx`, `PyPDF2`
