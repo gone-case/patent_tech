@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Large binary/generated files — build these via Colab
+patents_faiss.index
+patents_meta.parquet
+
+# Output/results files (generated at runtime)
+output_data.xlsx
+output_pvalues.xlsx
+output_results.xlsx
+prior_art_report.md
+
+# Uploaded files (user uploads at runtime)
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets / env
+.env
+*.env

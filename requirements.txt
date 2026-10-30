@@ -1,0 +1,16 @@
+torch
+transformers
+scipy
+pandas
+numpy
+openpyxl
+tqdm
+faiss-cpu
+pypdf
+python-docx
+beautifulsoup4
+requests
+pyarrow
+datasets
+flask
+gunicorn

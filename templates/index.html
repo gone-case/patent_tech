@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDTD Patent Intelligence & Prior-Art Radar</title>
+  <meta name="description" content="Multi-agent patent similarity search and prior-art risk analysis using Semantic Distance and Technological Distance hybrid methodology.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="background-glow glow-1"></div>
+  <div class="background-glow glow-2"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="badge-pill">
+        <span class="pulsing-dot"></span>
+        <span>SDTD MULTI-AGENT ENGINE</span>
+      </div>
+      <h1 class="main-title">Patent Intelligence &amp; Prior-Art Radar</h1>
+      <p class="subtitle">
+        Evaluating semantic embeddings (Patent-BERT) and technological classifications (IPC Jaccard) across millions of USPTO patents.
+      </p>
+    </header>
+
+    <!-- Main Card -->
+    <main class="card main-search-card">
+      <!-- Tabs -->
+      <nav class="nav-tabs" role="tablist">
+        <button class="tab-btn active" id="tab-doc" data-mode="doc">
+          <svg class="tab-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          Upload Document
+        </button>
+        <button class="tab-btn" id="tab-patent" data-mode="patent">
+          <svg class="tab-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          Google Patent ID
+        </button>
+        <button class="tab-btn" id="tab-text" data-mode="text">
+          <svg class="tab-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+          </svg>
+          Invention Proposal
+        </button>
+      </nav>
+
+      <!-- Tab 1: Upload Document -->
+      <section class="tab-content active" id="content-doc">
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="file-input" accept=".pdf,.docx,.txt,.md,.json" hidden>
+          <div class="dropzone-inner">
+            <div class="upload-icon-wrapper">
+              <svg class="upload-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+            </div>
+            <p class="drop-title">Drag &amp; drop invention disclosure document</p>
+            <p class="drop-subtitle">Supports <strong>PDF</strong>, <strong>Word (.docx)</strong>, <strong>Markdown</strong>, <strong>Text</strong>, or <strong>JSON</strong></p>
+            <button type="button" class="btn btn-secondary" id="browse-btn">Browse Local File</button>
+          </div>
+          <div class="file-preview-card hidden" id="file-preview">
+            <div class="file-info">
+              <span class="file-name" id="selected-file-name">filename.pdf</span>
+              <span class="file-size" id="selected-file-size">1.2 MB</span>
+            </div>
+            <button type="button" class="remove-file-btn" id="remove-file-btn" title="Remove file">&times;</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 2: Google Patent ID -->
+      <section class="tab-content" id="content-patent">
+        <div class="input-group">
+          <label for="patent-id-input" class="input-label">Patent Publication Number</label>
+          <input type="text" id="patent-id-input" class="text-input" placeholder="e.g., US10123456B2, US9876543B1, EP1234567A1">
+          <div class="chips-row">
+            <span class="chip-label">Quick samples:</span>
+            <button type="button" class="preset-chip" data-patent="US10123456B2">US10123456B2 (Heat Sink)</button>
+            <button type="button" class="preset-chip" data-patent="US9876543B1">US9876543B1</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 3: Invention Idea -->
+      <section class="tab-content" id="content-text">
+        <div class="input-group">
+          <label for="text-query-input" class="input-label">Invention Abstract / Technical Description</label>
+          <textarea id="text-query-input" class="text-area" rows="4" placeholder="Describe your invention concept, apparatus, technical mechanism, or claims summary..."></textarea>
+        </div>
+      </section>
+
+      <!-- Common Controls -->
+      <div class="controls-grid">
+        <div class="control-col">
+          <label for="ipc-input" class="input-label">
+            IPC / CPC Classifications <span class="label-hint">(optional override/addition)</span>
+          </label>
+          <input type="text" id="ipc-input" class="text-input" placeholder="e.g. G06F, H04L (auto-detected if blank)">
+        </div>
+        <div class="control-col">
+          <label for="top-k-select" class="input-label">Retrieve Top Candidates</label>
+          <select id="top-k-select" class="select-input">
+            <option value="3">Top 3 Candidates</option>
+            <option value="5" selected>Top 5 Candidates</option>
+            <option value="8">Top 8 Candidates</option>
+            <option value="10">Top 10 Candidates</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Quick Preset Idea Chips -->
+      <div class="quick-presets">
+        <span class="preset-title">Pre-loaded Examples:</span>
+        <button type="button" class="idea-chip" data-idea="Quantum optical transceiver for QKD with polarization compensation over fiber networks" data-ipc="H04L,G06F">
+          🔬 Quantum Optical Key Transceiver
+        </button>
+        <button type="button" class="idea-chip" data-idea="Phase change material heat sink with micro-channel lattice cooling for semiconductor processors" data-ipc="H05K,B23P">
+          ⚡ Phase Change Semiconductor Cooling
+        </button>
+      </div>
+
+      <!-- Action Button -->
+      <div class="action-row">
+        <button type="button" class="btn btn-primary" id="search-btn">
+          <svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Run Multi-Agent Analysis
+        </button>
+      </div>
+
+      <!-- Multi-Agent HUD Stepper -->
+      <div class="agent-stepper hidden" id="agent-stepper">
+        <div class="stepper-track"></div>
+        <div class="agent-step" id="step-harvester">
+          <div class="step-icon">1</div>
+          <div class="step-label">HarvesterAgent</div>
+          <div class="step-sub">Parsing Document &amp; IPC</div>
+        </div>
+        <div class="agent-step" id="step-retrieval">
+          <div class="step-icon">2</div>
+          <div class="step-label">RetrievalAgent</div>
+          <div class="step-sub">FAISS Dense Search</div>
+        </div>
+        <div class="agent-step" id="step-analyst">
+          <div class="step-icon">3</div>
+          <div class="step-label">AnalystAgent</div>
+          <div class="step-sub">SDTD Hybrid Reranker</div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Results Section -->
+    <section class="results-container hidden" id="results-container">
+      <!-- Target Summary Card -->
+      <div class="card target-card">
+        <div class="target-header">
+          <div>
+            <span class="eyebrow" id="target-source">Source: Uploaded Document</span>
+            <h2 class="target-title" id="target-title">Invention Title</h2>
+          </div>
+          <div class="target-meta-badge">
+            <span id="target-elapsed">3.2s</span>
+          </div>
+        </div>
+        <div class="ipc-tags-container" id="target-ipc-tags">
+          <!-- Dynamically populated IPC tags -->
+        </div>
+        <p class="target-abstract" id="target-abstract"></p>
+      </div>
+
+      <!-- Candidates Header -->
+      <div class="results-header">
+        <h3 class="section-title">Prior-Art Candidates Ranked by Hybrid SDTD</h3>
+        <button type="button" class="btn btn-outline" id="download-report-btn">
+          <svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          Download Report (.md)
+        </button>
+      </div>
+
+      <!-- Candidate Cards Grid -->
+      <div class="candidates-grid" id="candidates-grid">
+        <!-- Rendered via JavaScript -->
+      </div>
+    </section>
+
+    <!-- Methodology Explainer Footer Card -->
+    <footer class="card methodology-card">
+      <div class="methodology-grid">
+        <div>
+          <h4>Hybrid SDTD Formula</h4>
+          <div class="formula-box">
+            SDTD = <span class="frac"><span>(TD + 1) &times; SD</span><span class="bottom">2</span></span>
+          </div>
+          <p class="text-sm">
+            <strong>Semantic Distance (SD):</strong> Patent-BERT cosine similarity.<br>
+            <strong>Technological Distance (TD):</strong> Jaccard overlap of IPC classifications.<br>
+            Prevents false cross-industry semantic collisions while prioritizing genuine technological art.
+          </p>
+        </div>
+        <div>
+          <h4>Benchmark Performance (vs State-of-the-Art)</h4>
+          <table class="benchmark-table">
+            <thead>
+              <tr><th>Model Architecture</th><th>Pearson <em>r</em></th><th>Spearman &rho;</th></tr>
+            </thead>
+            <tbody>
+              <tr class="highlight-row"><td>⭐ <strong>Proposed SDTD</strong></td><td><strong>0.8943</strong></td><td><strong>0.6816</strong></td></tr>
+              <tr><td>Standard BERT</td><td>0.2812</td><td>0.2401</td></tr>
+              <tr><td>Siamese BiLSTM</td><td>-0.0505</td><td>0.0040</td></tr>
+              <tr><td>Siamese CNN</td><td>-0.1180</td><td>-0.0431</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
