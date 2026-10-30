@@ -10,11 +10,10 @@ __pycache__/
 venv/
 env/
 
-# Large binary/generated files — build these via Colab
-patents_faiss.index
-patents_meta.parquet
+# Large binary files (tracked directly, under 100MB GitHub limit)
+# patents_faiss.index and patents_meta.parquet are intentionally tracked
 
-# Output/results files (generated at runtime)
+# Output/results (generated at runtime)
 output_data.xlsx
 output_pvalues.xlsx
 output_results.xlsx
