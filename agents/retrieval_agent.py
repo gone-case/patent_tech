@@ -4,7 +4,6 @@ High-speed candidate search using FAISS dense vector indices.
 Retrieves the Top-K semantically closest patents (SD) from millions of candidates in milliseconds.
 """
 import os
-import ast
 import numpy as np
 import pandas as pd
 import faiss
@@ -18,14 +17,12 @@ class RetrievalAgent:
         self,
         index_path: str = "patents_faiss.index",
         meta_path: str = "patents_meta.parquet",
-        fallback_excel: str = "patent_dataset.xlsx",
         device: Optional[str] = None,
     ):
         self.name = "RetrievalAgent"
         self.role = "Vector Search & Candidate Retrieval"
         self.index_path = index_path
         self.meta_path = meta_path
-        self.fallback_excel = fallback_excel
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
         self.index: Optional[faiss.Index] = None
@@ -53,63 +50,34 @@ class RetrievalAgent:
             self.index = faiss.read_index(self.index_path)
             meta_df = pd.read_parquet(self.meta_path)
             self.metadata = meta_df.to_dict(orient="records")
+            self._normalize_metadata_codes()
             print(f"[{self.name}] Vector index active with {self.index.ntotal} indexed patents.")
-        elif os.path.exists(self.fallback_excel):
-            print(f"[{self.name}] No cached FAISS index found. Building index from {self.fallback_excel} (limit={max_samples})...")
-            self._build_index_from_excel(self.fallback_excel, max_records=max_samples)
         else:
-            print(f"[{self.name}] Warning: No index or dataset found. Ready to ingest new embeddings.")
+            print(f"[{self.name}] Warning: No index found. Build one with the Colab notebook or build_google_patents_index.py.")
         self._index_initialized = True
 
-    def _build_index_from_excel(self, excel_path: str, max_records: Optional[int] = None):
-        """Builds a normalized Inner-Product FAISS index (Cosine Similarity) from local dataset."""
-        df = pd.read_excel(excel_path)
-        if max_records:
-            df = df.head(max_records)
-        
-        # Deduplicate target patents to create a database of candidate patents
-        records = []
-        texts = []
-        seen = set()
+    def _normalize_metadata_codes(self):
+        """
+        Converts parquet arrays to lists, and repairs indices built from ccdv/patent-classification
+        by older notebook versions, which stored the CPC section label as a fake '<section>06F'
+        subclass (A06F, H06F, ...). Those only carry section-level information.
+        """
+        for rec in self.metadata:
+            # Array columns (codes, ipc_codes, cpc_codes, ...) load as numpy arrays, which aren't JSON serializable
+            for key, value in rec.items():
+                if isinstance(value, np.ndarray):
+                    rec[key] = [v.item() if isinstance(v, np.generic) else v for v in value]
+                elif isinstance(value, np.generic):
+                    rec[key] = value.item()
+            codes = rec.get("codes")
+            rec["codes"] = [str(c) for c in codes] if codes is not None else []
 
-        # Extract both candidate sides (target_meta and meta)
-        for _, row in df.iterrows():
-            target_meta = str(row.get("target_meta", "")).strip()
-            if target_meta and target_meta not in seen:
-                seen.add(target_meta)
-                raw_codes = row.get("target_ipc", "['G06F']")
-                try:
-                    codes = ast.literal_eval(raw_codes) if isinstance(raw_codes, str) else list(raw_codes)
-                except Exception:
-                    codes = [str(raw_codes)[:4].upper()]
-                records.append({
-                    "patent_id": f"PAT_{len(records):06d}",
-                    "meta": target_meta,
-                    "codes": codes,
-                })
-                texts.append(target_meta)
-
-        if not texts:
-            print(f"[{self.name}] No valid text records found to index.")
-            return
-
-        print(f"[{self.name}] Computing Patent-BERT dense vectors for {len(texts)} patents...")
-        embeddings = self.encode_texts(texts)
-        
-        # Normalize for cosine similarity
-        faiss.normalize_L2(embeddings)
-        dim = embeddings.shape[1]
-        self.index = faiss.IndexFlatIP(dim)
-        self.index.add(embeddings)
-        self.metadata = records
-
-        # Persist index and metadata for instant future startup
-        try:
-            faiss.write_index(self.index, self.index_path)
-            pd.DataFrame(records).to_parquet(self.meta_path, index=False)
-            print(f"[{self.name}] Successfully cached FAISS index ({self.index.ntotal} vectors) to disk.")
-        except Exception as e:
-            print(f"[{self.name}] Cache notice: {e}")
+        synthetic = {f"{s}06F" for s in "ABCDEFGHY"}
+        all_codes = {c for rec in self.metadata for c in rec["codes"]}
+        if all_codes and all_codes <= synthetic and len(all_codes) > 1:
+            print(f"[{self.name}] Index uses section-only labels (ccdv); mapping '<X>06F' -> section '<X>'.")
+            for rec in self.metadata:
+                rec["codes"] = [c[0] for c in rec["codes"]]
 
     def encode_texts(self, texts: List[str], batch_size: int = 16) -> np.ndarray:
         """Encodes texts into 1024-dimensional Patent-BERT embeddings."""

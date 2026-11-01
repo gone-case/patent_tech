@@ -77,14 +77,16 @@ class OrchestratorAgent:
         # Step 2: RetrievalAgent
         # -------------------------------------------------------------
         print(f"\n[{self.name}] Dispatching RetrievalAgent for vector candidate search (Top {top_k})...")
-        candidates = self.retrieval.retrieve(target_patent["meta"], top_k=top_k)
+        # Over-retrieve on abstract similarity, then let SDTD (abstract + IPC) pick the final top_k
+        pool_size = max(top_k * 10, 50)
+        candidates = self.retrieval.retrieve(target_patent["meta"], top_k=pool_size)
         print(f"[{self.name}] Retrieved {len(candidates)} candidate patents via FAISS vector search.")
 
         # -------------------------------------------------------------
         # Step 3: AnalystAgent
         # -------------------------------------------------------------
         print(f"\n[{self.name}] Dispatching AnalystAgent for Hybrid SDTD calculation and legal risk evaluation...")
-        analyzed_candidates = self.analyst.evaluate_candidates(target_patent, candidates)
+        analyzed_candidates = self.analyst.evaluate_candidates(target_patent, candidates)[:top_k]
         report_markdown = self.analyst.generate_report(target_patent, analyzed_candidates)
 
         elapsed = time.time() - start_time

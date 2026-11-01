@@ -1,9 +1,7 @@
 torch
 transformers
-scipy
 pandas
 numpy
-openpyxl
 tqdm
 faiss-cpu
 pypdf

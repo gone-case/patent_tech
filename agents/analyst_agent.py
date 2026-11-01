@@ -4,7 +4,54 @@ Specialized in applying the novel SDTD methodology (Semantic + Technological Dis
 re-ranking candidate patents, assessing infringement / prior-art risk, and generating
 executive patent intelligence reports.
 """
-from typing import List, Dict, Any
+import re
+from typing import List, Dict, Any, Optional
+
+# Similarity awarded for the deepest shared IPC level:
+# section (H), class (H05), subclass (H05K), main group (H05K7), subgroup (H05K7/2029)
+IPC_LEVEL_WEIGHTS = {0: 0.0, 1: 0.25, 2: 0.5, 3: 0.75, 4: 0.9, 5: 1.0}
+_IPC_RE = re.compile(r"^([A-HY])(\d{2})?([A-Z])?(\d{1,4})?(?:/(\d{1,6}))?")
+
+
+def to_code_list(codes) -> List[str]:
+    if codes is None:
+        return []
+    if isinstance(codes, str):
+        return [codes]
+    try:
+        return [str(c) for c in codes]
+    except Exception:
+        return [str(codes)]
+
+
+def ipc_levels(code: str) -> Optional[List[str]]:
+    """'H05K 7/2029' -> ['H', 'H05', 'H05K', 'H05K7', 'H05K7/2029']"""
+    code = re.sub(r"\s+", "", str(code).upper())
+    m = _IPC_RE.match(code)
+    if not m:
+        return None
+    levels, prefix = [], ""
+    for part, sep in zip(m.groups(), ("", "", "", "", "/")):
+        if part is None:
+            break
+        prefix += sep + part
+        levels.append(prefix)
+    return levels
+
+
+def common_depth(a: List[str], b: List[str]) -> int:
+    depth = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        depth += 1
+    return depth
+
+
+def ipc_code_similarity(a: List[str], b: List[str]) -> float:
+    if a == b:
+        return 1.0
+    return IPC_LEVEL_WEIGHTS[common_depth(a, b)]
 
 
 class AnalystAgent:
@@ -14,51 +61,46 @@ class AnalystAgent:
 
     def calculate_technological_distance(self, query_codes, candidate_codes) -> float:
         """
-        Calculates Jaccard overlap between IPC/CPC classifications.
-        TD = |Intersection| / |Union|
+        Hierarchical IPC/CPC similarity (soft Jaccard).
+        Each query code is matched to its closest candidate code (and vice versa) by the
+        deepest shared level of the IPC tree (section > class > subclass > group > subgroup),
+        so e.g. H05K7/2029 vs H05K7/20 scores 0.9 instead of 0.
         """
-        def to_set(codes):
-            if codes is None:
-                return set()
-            if isinstance(codes, (list, tuple, set)):
-                return set(codes)
-            try:
-                return set(list(codes))
-            except Exception:
-                return {str(codes)}
-
-        set_q = to_set(query_codes)
-        set_c = to_set(candidate_codes)
-        
-        union = set_q | set_c
-        if not union:
+        q_levels = [lv for lv in (ipc_levels(c) for c in to_code_list(query_codes)) if lv]
+        c_levels = [lv for lv in (ipc_levels(c) for c in to_code_list(candidate_codes)) if lv]
+        if not q_levels or not c_levels:
             return 0.0
-        
-        intersection = set_q & set_c
-        return float(len(intersection) / len(union))
+
+        q_to_c = sum(max(ipc_code_similarity(q, c) for c in c_levels) for q in q_levels) / len(q_levels)
+        c_to_q = sum(max(ipc_code_similarity(c, q) for q in q_levels) for c in c_levels) / len(c_levels)
+        return float((q_to_c + c_to_q) / 2.0)
+
+    def shared_ipc_prefixes(self, query_codes, candidate_codes) -> List[str]:
+        """Deepest common IPC prefix for each query code with its closest candidate code."""
+        c_levels = [lv for lv in (ipc_levels(c) for c in candidate_codes) if lv]
+        shared = []
+        for code in query_codes:
+            q = ipc_levels(code)
+            if not q or not c_levels:
+                continue
+            best = max(c_levels, key=lambda c: common_depth(q, c))
+            depth = common_depth(q, best)
+            if depth:
+                shared.append(q[depth - 1])
+        return list(dict.fromkeys(shared))
 
     def evaluate_candidates(self, query_patent: Dict, candidates: List[Dict]) -> List[Dict]:
         """
         Re-ranks candidates by computing:
         1. SD = Semantic Distance / Cosine Similarity (from RetrievalAgent)
-        2. TD = Technological Distance / IPC Jaccard Overlap
+        2. TD = Technological Distance / hierarchical IPC overlap
         3. SDTD = ((TD + 1) * SD) / 2
         """
-        def to_list(codes):
-            if codes is None:
-                return []
-            if isinstance(codes, list):
-                return codes
-            try:
-                return list(codes)
-            except Exception:
-                return [str(codes)]
-
-        q_codes = to_list(query_patent.get("codes", []))
+        q_codes = to_code_list(query_patent.get("codes", []))
         analyzed = []
 
         for cand in candidates:
-            c_codes = to_list(cand.get("codes", []))
+            c_codes = to_code_list(cand.get("codes", []))
             
             # Semantic Similarity (SD)
             sd = float(cand.get("sd_score", 0.0))
@@ -77,7 +119,7 @@ class AnalystAgent:
             else:
                 risk_level = "LOW OVERLAP (Distinct Invention Area)"
 
-            overlap_codes = list(set(q_codes) & set(c_codes))
+            overlap_codes = self.shared_ipc_prefixes(q_codes, c_codes)
             distinct_query_codes = list(set(q_codes) - set(c_codes))
             distinct_cand_codes = list(set(c_codes) - set(q_codes))
 
