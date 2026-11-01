@@ -28,7 +28,7 @@ Deployed on Render: *(add your Render URL here)*
 | Component | Formula |
 |---|---|
 | Semantic Distance (SD) | Patent-BERT cosine similarity |
-| Technological Distance (TD) | IPC Jaccard: Intersection(A,B) / Union(A,B) |
+| Technological Distance (TD) | Hierarchical IPC/CPC overlap (section 0.25, class 0.5, subclass 0.75, main group 0.9, exact 1.0) |
 | **Hybrid Score (SDTD)** | **(TD + 1) * SD / 2** |
 
 ---
@@ -137,8 +137,7 @@ python run_multi_agent.py --file "my_invention.pdf" --top_k 5
 .
 +-- app.py                          Flask web application
 +-- run_multi_agent.py              CLI entrypoint
-+-- main.py                         Model benchmark evaluation
-+-- prepare_hupd_dataset.py         HUPD to patent_dataset.xlsx
++-- build_google_patents_index.py   Builds the index locally from data/raw (CPU)
 +-- requirements.txt
 +-- Procfile                        Render.com config
 +-- render.yaml
@@ -149,17 +148,14 @@ python run_multi_agent.py --file "my_invention.pdf" --top_k 5
 |   +-- analyst_agent.py
 |   +-- colab_worker.py
 +-- train_models/
-|   +-- sbert.py                    Patent-BERT SDTD model
-|   +-- sim_cnn.py
-|   +-- sim_lstm.py
-|   +-- sim_bilstm.py
+|   +-- sbert.py                    Patent-BERT encoder
 +-- colab/
 |   +-- patent_gpu_embedder.ipynb   GPU Colab notebook
-|   +-- colab_batch_embedder.py
 +-- static/                         CSS and JS
 +-- templates/                      HTML
-+-- patents_faiss.index             50k patent vector index
-+-- patents_meta.parquet            Patent metadata
++-- data/processed/index_records.parquet   Google Patents records (title, abstract, CPC) for Colab
++-- patents_faiss.index             Patent-BERT vector index (title + abstract)
++-- patents_meta.parquet            Patent metadata incl. CPC codes
 ```
 
 ---
@@ -170,4 +166,4 @@ python run_multi_agent.py --file "my_invention.pdf" --top_k 5
 pip install -r requirements.txt
 ```
 
-Key dependencies: `flask`, `transformers`, `torch`, `faiss-cpu`, `sentence-transformers`, `pandas`, `datasets`, `python-docx`, `PyPDF2`
+Key dependencies: `flask`, `transformers`, `torch`, `faiss-cpu`, `pandas`, `datasets`, `python-docx`, `pypdf`

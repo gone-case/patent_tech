@@ -75,8 +75,17 @@ class HarvesterAgent:
 
         # 3. IPC / CPC Classifications
         ipc_codes = set()
-        # Find classification elements
-        class_elements = soup.find_all(["span", "dd", "a"], {"itemprop": ["Code", "Leaf"]})
+        # Leaf classifications carry the full group code, e.g. H05K7/2029
+        for li in soup.find_all(attrs={"itemprop": "classifications"}):
+            leaf = li.find("meta", {"itemprop": "Leaf"}, recursive=False)
+            code_elem = li.find(attrs={"itemprop": "Code"}, recursive=False)
+            if leaf and code_elem:
+                code = code_elem.get_text(strip=True).upper()
+                if re.match(r"^[A-HY][0-9]{2}[A-Z][0-9]{1,4}/[0-9]{1,6}$", code):
+                    ipc_codes.add(code)
+
+        # Fall back to 4-character subclasses if no leaf codes were found
+        class_elements = [] if ipc_codes else soup.find_all(["span", "dd", "a"], {"itemprop": ["Code", "Leaf"]})
         for elem in class_elements:
             code = elem.get_text(strip=True)
             # Match 4-character IPC format like G06F, H01L, A61K
@@ -85,7 +94,7 @@ class HarvesterAgent:
                 ipc_codes.add(m.group(0))
 
         # Check meta tags for classifications
-        for meta in soup.find_all("meta", {"scheme": ["issue", "cpc", "ipc"]}):
+        for meta in ([] if ipc_codes else soup.find_all("meta", {"scheme": ["issue", "cpc", "ipc"]})):
             content = meta.get("content", "")
             m = re.match(r"^[A-HY][0-9]{2}[A-Z]", content)
             if m:
@@ -195,9 +204,9 @@ class HarvesterAgent:
 
         # Scan for explicit IPC / CPC codes mentioned in text (e.g. IPC: G06F or H04L)
         found_codes = set()
-        matches = re.findall(r"\b([A-HY][0-9]{2}[A-Z])\b", extracted_text)
+        matches = re.findall(r"\b([A-HY][0-9]{2}[A-Z](?:\s?[0-9]{1,4}/[0-9]{1,6})?)(?![0-9A-Za-z])", extracted_text)
         for m in matches:
-            found_codes.add(m.upper())
+            found_codes.add(re.sub(r"\s+", "", m.upper()))
 
         codes = list(found_codes)
         if custom_codes:
