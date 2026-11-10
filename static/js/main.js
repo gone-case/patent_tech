@@ -31,8 +31,27 @@ document.addEventListener("DOMContentLoaded", () => {
   const candidatesGrid = document.getElementById("candidates-grid");
   const downloadReportBtn = document.getElementById("download-report-btn");
 
+  const agentTrace = document.getElementById("agent-trace");
+  const traceList = document.getElementById("trace-list");
+  const traceStatus = document.getElementById("trace-status");
+  const reviewToggle = document.getElementById("review-toggle");
+  const reviewToggleLabel = document.getElementById("review-toggle-label");
+  const reviewCard = document.getElementById("review-card");
+  const reviewFeatures = document.getElementById("review-features");
+  const reviewCodes = document.getElementById("review-codes");
+  const reviewCodesSource = document.getElementById("review-codes-source");
+  const reviewContinueBtn = document.getElementById("review-continue-btn");
+  const agentFindings = document.getElementById("agent-findings");
+  const agentNarrative = document.getElementById("agent-narrative");
+
   let activeMode = "doc"; // "doc" | "patent" | "text"
   let selectedFile = null;
+  let pendingThreadId = null;
+
+  const selectedEngine = () => document.querySelector('input[name="engine"]:checked').value;
+  document.querySelectorAll('input[name="engine"]').forEach(r => r.addEventListener("change", () => {
+    reviewToggleLabel.classList.toggle("disabled", selectedEngine() !== "agents");
+  }));
 
   // 1. Tab Navigation
   tabs.forEach(tab => {
@@ -163,11 +182,19 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     }
 
+    if (selectedEngine() === "agents") {
+      await runAgentSearch(formData, queryPayload);
+      return;
+    }
+
     // UI State: Starting Search
+    agentTrace.classList.add("hidden");
+    reviewCard.classList.add("hidden");
+    agentFindings.classList.add("hidden");
     searchBtn.disabled = true;
     searchBtn.innerHTML = `
       <span class="pulsing-dot"></span>
-      Running Agents...
+      Searching...
     `;
     agentStepper.classList.remove("hidden");
     resultsContainer.classList.add("hidden");
@@ -224,9 +251,9 @@ document.addEventListener("DOMContentLoaded", () => {
       searchBtn.disabled = false;
       searchBtn.innerHTML = `
         <svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
         </svg>
-        Run Multi-Agent Analysis
+        Search prior art
       `;
     }
   });
@@ -274,8 +301,8 @@ document.addEventListener("DOMContentLoaded", () => {
       card.className = "candidate-card";
 
       const sharedIpcText = (cand.shared_ipc && cand.shared_ipc.length > 0)
-        ? `Shared IPC: ${cand.shared_ipc.join(", ")}`
-        : "No direct IPC overlap";
+        ? `Shared CPC/IPC: ${cand.shared_ipc.join(", ")}`
+        : "No CPC/IPC overlap";
 
       card.innerHTML = `
         <div class="cand-top-row">
@@ -283,8 +310,12 @@ document.addEventListener("DOMContentLoaded", () => {
             <span class="cand-rank">#${rank}</span>
             <span class="cand-id">${cand.patent_id || `Candidate ${rank}`}</span>
           </div>
-          <span class="risk-badge ${riskClass}">${cand.risk_level || "MODERATE OVERLAP"}</span>
+          <span class="risk-badge ${riskClass}" title="${escapeHtml(cand.risk_level || "")}">${{ "risk-high": "High overlap", "risk-mod": "Moderate overlap", "risk-low": "Low overlap" }[riskClass]}</span>
         </div>
+
+        ${cand.title ? `<h4 class="cand-title">${cand.url && cand.url.startsWith("http")
+            ? `<a href="${escapeHtml(cand.url)}" target="_blank" rel="noopener">${escapeHtml(cand.title)}</a>`
+            : escapeHtml(cand.title)}</h4>` : ""}
 
         <div class="metrics-row">
           <div class="metric-col">
@@ -314,7 +345,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         <div class="cand-footer">
           <span class="ipc-shared-pill">${sharedIpcText}</span>
-          <span>Codes: ${(cand.codes || []).join(", ") || "None"}</span>
+          <span>Codes: ${(cand.codes || []).slice(0, 8).join(", ") || "None"}${(cand.codes || []).length > 8 ? ` +${cand.codes.length - 8} more` : ""}</span>
         </div>
       `;
 
@@ -331,7 +362,219 @@ document.addEventListener("DOMContentLoaded", () => {
     return div.innerHTML;
   }
 
-  // 6. Download Report (.md)
+  // 6. LangGraph Agents: streamed events
+  function setBusy(busy, label) {
+    searchBtn.disabled = busy;
+    searchBtn.innerHTML = busy
+      ? `<span class="pulsing-dot"></span> ${label}`
+      : `<svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+         </svg>
+         Search prior art`;
+  }
+
+  async function runAgentSearch(formData, queryPayload) {
+    const review = reviewToggle.checked;
+    let req;
+    if (formData) {
+      formData.append("review", review ? "true" : "false");
+      req = fetch("/api/agent/search", { method: "POST", body: formData });
+    } else {
+      req = fetch("/api/agent/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...queryPayload, review })
+      });
+    }
+
+    traceList.innerHTML = "";
+    agentStepper.classList.add("hidden");
+    resultsContainer.classList.add("hidden");
+    reviewCard.classList.add("hidden");
+    agentTrace.classList.remove("hidden");
+    agentTrace.scrollIntoView({ behavior: "smooth", block: "start" });
+    await consumeStream(req);
+  }
+
+  reviewContinueBtn.addEventListener("click", async () => {
+    if (!pendingThreadId) return;
+    const features = reviewFeatures.value.split("\n").map(s => s.trim()).filter(Boolean);
+    const cpc_codes = reviewCodes.value.split(",").map(s => s.trim()).filter(Boolean);
+    reviewCard.classList.add("hidden");
+    const req = fetch("/api/agent/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thread_id: pendingThreadId, features, cpc_codes })
+    });
+    pendingThreadId = null;
+    await consumeStream(req);
+  });
+
+  async function consumeStream(requestPromise) {
+    setBusy(true, "Agents working...");
+    traceStatus.textContent = "running";
+    const waiting = addWaitingItem();
+    try {
+      const res = await requestPromise;
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line) handleAgentEvent(JSON.parse(line), waiting);
+        }
+      }
+    } catch (err) {
+      addTraceItem({ agent: "Error", message: err.message });
+      traceStatus.textContent = "failed";
+    } finally {
+      waiting.remove();
+      setBusy(false);
+    }
+  }
+
+  function handleAgentEvent(ev, waiting) {
+    if (ev.type === "step") {
+      addTraceItem(ev);
+      traceList.appendChild(waiting);  // keep the "working" row last
+    } else if (ev.type === "review") {
+      pendingThreadId = ev.thread_id;
+      traceStatus.textContent = "waiting for you";
+      reviewFeatures.value = ev.invention.features.join("\n");
+      reviewCodes.value = ev.invention.cpc_codes.join(", ");
+      reviewCodesSource.textContent = `(${ev.codes_source})`;
+      reviewCard.classList.remove("hidden");
+      reviewCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (ev.type === "result") {
+      traceStatus.textContent = `done in ${ev.elapsed_seconds}s, ${ev.rounds} search round(s)`;
+      renderAgentResult(ev);
+    } else if (ev.type === "error") {
+      addTraceItem({ agent: "Error", message: ev.message });
+      traceStatus.textContent = "failed";
+    }
+  }
+
+  function agentClass(agent) {
+    return "agent-" + agent.toLowerCase().replace(/#\d+/, "").trim().replace(/\s+/g, "-");
+  }
+
+  function addTraceItem(ev) {
+    const li = document.createElement("li");
+    li.className = `trace-item ${agentClass(ev.agent)}`;
+    const secs = ev.seconds !== undefined ? `<span class="trace-secs">${ev.seconds.toFixed(1)}s</span>` : "";
+    let details = "";
+    const data = ev.data || {};
+    // Long lists stay folded, like the claim charts
+    if (data.queries) {
+      details = `<details class="trace-toggle"><summary>${data.queries.length} queries</summary>
+        <ul class="trace-details">${data.queries.map(q =>
+          `<li><span class="trace-tag">${q.feature ? "feature " + q.feature : "whole invention"}</span> ${escapeHtml(q.text)}</li>`
+        ).join("")}</ul></details>`;
+    } else if (data.features) {
+      details = `<details class="trace-toggle"><summary>${data.features.length} features</summary>
+        <ol class="trace-details">${data.features.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ol></details>`;
+    }
+    li.innerHTML = `
+      <div class="trace-head"><span class="trace-agent">${escapeHtml(ev.agent)}</span>${secs}</div>
+      <div class="trace-msg">${escapeHtml(ev.message)}</div>
+      ${details}`;
+    traceList.appendChild(li);
+  }
+
+  function addWaitingItem() {
+    const li = document.createElement("li");
+    li.className = "trace-item trace-waiting";
+    li.innerHTML = `<div class="trace-head"><span class="pulsing-dot"></span><span class="trace-msg">Next agent working...</span></div>`;
+    traceList.appendChild(li);
+    return li;
+  }
+
+  const STATUS_LABEL = { disclosed: "Disclosed", partial: "Partial", not_found: "Not found" };
+
+  function renderAgentResult(ev) {
+    const inv = ev.invention;
+    renderResults({
+      target: { ...ev.target, title: inv.title, codes: inv.cpc_codes,
+                source: `${ev.target.source} · CPC ${ev.codes_source}`,
+                abstract: `${inv.problem} ${inv.solution}` },
+      candidates: ev.candidates,
+      elapsed_seconds: ev.elapsed_seconds
+    });
+
+    // Claim chart inside each candidate card
+    const cards = candidatesGrid.querySelectorAll(".candidate-card");
+    ev.charts.forEach(chart => {
+      const card = cards[chart.rank - 1];
+      if (!card) return;
+      const counts = { disclosed: 0, partial: 0, not_found: 0 };
+      chart.rows.forEach(r => counts[r.status]++);
+      // Collapsed by default: one summary line, then one row per feature
+      const div = document.createElement("details");
+      div.className = "claim-chart";
+      div.innerHTML = `
+        <summary class="claim-similarity">
+          <span class="metric-label">Claim similarity</span>
+          <span class="metric-val">${Math.round(chart.coverage * 100)}%</span>
+          <span class="status-pill status-disclosed">${counts.disclosed} disclosed</span>
+          <span class="status-pill status-partial">${counts.partial} partial</span>
+          <span class="status-pill status-not_found">${counts.not_found} not found</span>
+          <span class="text-sm claim-basis">${chart.claims_compared ? "abstract + claims" : "abstract only"}</span>
+        </summary>
+        <div class="claim-summary">${escapeHtml(chart.summary)}</div>
+        ${chart.rows.map(r => `
+          <div class="chart-row">
+            <span class="status-pill status-${r.status}">${STATUS_LABEL[r.status]}</span>
+            <div>
+              <div class="chart-feature">F${r.feature}. ${escapeHtml(shortText(r.text, 12))}</div>
+              <div>${escapeHtml(r.explanation)}</div>
+              ${r.evidence ? `<div class="chart-evidence">"${escapeHtml(r.evidence)}"${r.verified ? "" : " <em>(quote not found in text)</em>"}</div>` : ""}
+            </div>
+          </div>`).join("")}`;
+      card.appendChild(div);
+    });
+
+    agentNarrative.innerHTML = renderMarkdown(ev.narrative || "");
+    agentFindings.classList.remove("hidden");
+  }
+
+  function shortText(text, maxWords) {
+    const words = (text || "").split(/\s+/);
+    return words.length <= maxWords ? text : words.slice(0, maxWords).join(" ") + " ...";
+  }
+
+  // Minimal markdown for the Reporter's narrative: headings, bullets, bold, code
+  function renderMarkdown(md) {
+    const inline = s => escapeHtml(s)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+    let html = "", inList = false;
+    md.split("\n").forEach(raw => {
+      const line = raw.trim();
+      const bullet = line.match(/^[-*]\s+(.*)/);
+      if (bullet) {
+        if (!inList) { html += "<ul>"; inList = true; }
+        html += `<li>${inline(bullet[1])}</li>`;
+        return;
+      }
+      if (inList) { html += "</ul>"; inList = false; }
+      const h = line.match(/^(#{2,4})\s+(.*)/);
+      if (h) html += `<h4>${inline(h[2])}</h4>`;
+      else if (line) html += `<p>${inline(line)}</p>`;
+    });
+    return html + (inList ? "</ul>" : "");
+  }
+
+  // 7. Download Report (.md)
   downloadReportBtn.addEventListener("click", () => {
     window.location.href = "/api/download_report";
   });

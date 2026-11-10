@@ -3,15 +3,18 @@ from transformers import BertModel, BertTokenizer
 import torch
 import torch.nn as nn
 
+DEFAULT_ENCODER = 'anferico/bert-for-patents'
+
 class Sentence_Bert(nn.Module):
-    def __init__(self, device: str = None) -> None:
+    def __init__(self, device: str = None, model_name: str = DEFAULT_ENCODER) -> None:
         super(Sentence_Bert, self).__init__()
 
         self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        self.bert = BertModel.from_pretrained('anferico/bert-for-patents')
+
+        # model_name can also be a local directory holding fine-tuned Patent-BERT weights
+        self.bert = BertModel.from_pretrained(model_name)
         self.bert = self.bert.to(self.device)
-        self.tokenizer = BertTokenizer.from_pretrained('anferico/bert-for-patents')
+        self.tokenizer = BertTokenizer.from_pretrained(model_name)
 
         self.split_code = lambda x : [x[0], x[1:3], x[3]]
         self.bert.eval()

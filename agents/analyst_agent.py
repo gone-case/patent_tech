@@ -156,8 +156,8 @@ class AnalystAgent:
             "**Hybrid SDTD (Semantic Distance + Technological Distance)** methodology."
         )
         lines.append("")
-        lines.append("| Rank | Candidate Patent | SD (Semantic) | TD (IPC Overlap) | SDTD (Hybrid) | Risk Level |")
-        lines.append("| :---: | :--- | :---: | :---: | :---: | :--- |")
+        lines.append("| Rank | Candidate Patent | Title | SD (Semantic) | TD (IPC Overlap) | SDTD (Hybrid) | Risk Level |")
+        lines.append("| :---: | :--- | :--- | :---: | :---: | :---: | :--- |")
 
         for i, c in enumerate(analyzed_candidates, 1):
             pid = c.get("patent_id", f"Candidate {i}")
@@ -165,12 +165,12 @@ class AnalystAgent:
             td = c.get("td_score", 0.0)
             sdtd = c.get("sdtd_score", 0.0)
             risk = c.get("risk_level", "Unknown")
-            lines.append(f"| {i} | `{pid}` | {sd:.4f} | {td:.4f} | **{sdtd:.4f}** | {risk} |")
+            lines.append(f"| {i} | `{pid}` | {c.get('title', '')[:70]} | {sd:.4f} | {td:.4f} | **{sdtd:.4f}** | {risk} |")
 
         lines.append("\n## Detailed Candidate Breakdown\n")
 
         for i, c in enumerate(analyzed_candidates, 1):
-            lines.append(f"### {i}. Patent `{c.get('patent_id')}` (SDTD: {c.get('sdtd_score'):.4f})")
+            lines.append(f"### {i}. Patent `{c.get('patent_id')}`: {c.get('title', '')} (SDTD: {c.get('sdtd_score'):.4f})")
             lines.append(f"- **Shared IPC Classes**: `{', '.join(c.get('shared_ipc', [])) or 'None'}`")
             lines.append(f"- **Candidate IPC Classes**: `{', '.join(c.get('codes', []))}`")
             meta_snippet = c.get("meta", "")

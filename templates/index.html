@@ -3,27 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SDTD Patent Intelligence & Prior-Art Radar</title>
+  <title>Prior-Art Search · SDTD</title>
   <meta name="description" content="Multi-agent patent similarity search and prior-art risk analysis using Semantic Distance and Technological Distance hybrid methodology.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-  <div class="background-glow glow-1"></div>
-  <div class="background-glow glow-2"></div>
-
   <div class="app-container">
     <!-- Header -->
     <header class="app-header">
-      <div class="badge-pill">
-        <span class="pulsing-dot"></span>
-        <span>SDTD MULTI-AGENT ENGINE</span>
-      </div>
-      <h1 class="main-title">Patent Intelligence &amp; Prior-Art Radar</h1>
+      <div class="eyebrow">SDTD · Patent intelligence</div>
+      <h1 class="main-title">Prior-Art Search</h1>
       <p class="subtitle">
-        Evaluating semantic embeddings (Patent-BERT) and technological classifications (IPC Jaccard) across millions of USPTO patents.
+        Describe an invention and a team of agents searches 118,840 patents, scores them with Patent-BERT and CPC overlap (SDTD), and charts each feature against the closest prior art.
       </p>
     </header>
 
@@ -119,20 +110,37 @@
       <div class="quick-presets">
         <span class="preset-title">Pre-loaded Examples:</span>
         <button type="button" class="idea-chip" data-idea="Quantum optical transceiver for QKD with polarization compensation over fiber networks" data-ipc="H04L,G06F">
-          🔬 Quantum Optical Key Transceiver
+          Quantum optical key transceiver
         </button>
         <button type="button" class="idea-chip" data-idea="Phase change material heat sink with micro-channel lattice cooling for semiconductor processors" data-ipc="H05K,B23P">
-          ⚡ Phase Change Semiconductor Cooling
+          Phase-change semiconductor cooling
         </button>
+      </div>
+
+      <!-- Engine Choice -->
+      <div class="engine-row">
+        <span class="preset-title">Engine:</span>
+        <label class="engine-option">
+          <input type="radio" name="engine" value="agents" checked>
+          <span>LangGraph agents <em>(Gemini + Patent-BERT, ~1 min)</em></span>
+        </label>
+        <label class="engine-option">
+          <input type="radio" name="engine" value="classic">
+          <span>Classic pipeline <em>(no LLM, ~5 s)</em></span>
+        </label>
+        <label class="engine-option review-toggle" id="review-toggle-label">
+          <input type="checkbox" id="review-toggle">
+          <span>Let me review the features before searching</span>
+        </label>
       </div>
 
       <!-- Action Button -->
       <div class="action-row">
         <button type="button" class="btn btn-primary" id="search-btn">
           <svg class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
           </svg>
-          Run Multi-Agent Analysis
+          Search prior art
         </button>
       </div>
 
@@ -157,6 +165,28 @@
       </div>
     </main>
 
+    <!-- Live Agent Trace (LangGraph engine) -->
+    <section class="card agent-trace hidden" id="agent-trace">
+      <div class="results-header">
+        <h3 class="section-title">Agent Trace</h3>
+        <span class="target-meta-badge" id="trace-status">running</span>
+      </div>
+      <ol class="trace-list" id="trace-list"></ol>
+    </section>
+
+    <!-- Human Review (LangGraph interrupt) -->
+    <section class="card review-card hidden" id="review-card">
+      <h3 class="section-title">Review the Intake agent's analysis</h3>
+      <p class="text-sm review-hint">Edit, remove, or add features (one per line) and correct the CPC codes. The search continues with your version.</p>
+      <label for="review-features" class="input-label">Technical features</label>
+      <textarea id="review-features" class="text-area" rows="6"></textarea>
+      <label for="review-codes" class="input-label">CPC codes <span class="label-hint" id="review-codes-source"></span></label>
+      <input type="text" id="review-codes" class="text-input">
+      <div class="action-row">
+        <button type="button" class="btn btn-primary" id="review-continue-btn">Continue search</button>
+      </div>
+    </section>
+
     <!-- Results Section -->
     <section class="results-container hidden" id="results-container">
       <!-- Target Summary Card -->
@@ -174,6 +204,12 @@
           <!-- Dynamically populated IPC tags -->
         </div>
         <p class="target-abstract" id="target-abstract"></p>
+      </div>
+
+      <!-- Agent Findings (LangGraph engine only) -->
+      <div class="card agent-findings hidden" id="agent-findings">
+        <h3 class="section-title">Reporter's Assessment</h3>
+        <div class="narrative" id="agent-narrative"></div>
       </div>
 
       <!-- Candidates Header -->
@@ -203,23 +239,22 @@
           </div>
           <p class="text-sm">
             <strong>Semantic Distance (SD):</strong> Patent-BERT cosine similarity.<br>
-            <strong>Technological Distance (TD):</strong> Jaccard overlap of IPC classifications.<br>
+            <strong>Technological Distance (TD):</strong> hierarchical CPC/IPC overlap (section 0.25 &rarr; exact subgroup 1.0).<br>
             Prevents false cross-industry semantic collisions while prioritizing genuine technological art.
           </p>
         </div>
         <div>
-          <h4>Benchmark Performance (vs State-of-the-Art)</h4>
+          <h4>Citation Retrieval Benchmark (118,840 patents)</h4>
           <table class="benchmark-table">
             <thead>
-              <tr><th>Model Architecture</th><th>Pearson <em>r</em></th><th>Spearman &rho;</th></tr>
+              <tr><th>Ranking</th><th>Recall@10</th><th>Hit@10</th><th>MRR</th></tr>
             </thead>
             <tbody>
-              <tr class="highlight-row"><td>⭐ <strong>Proposed SDTD</strong></td><td><strong>0.8943</strong></td><td><strong>0.6816</strong></td></tr>
-              <tr><td>Standard BERT</td><td>0.2812</td><td>0.2401</td></tr>
-              <tr><td>Siamese BiLSTM</td><td>-0.0505</td><td>0.0040</td></tr>
-              <tr><td>Siamese CNN</td><td>-0.1180</td><td>-0.0431</td></tr>
+              <tr><td>SDTD (Patent-BERT + CPC)</td><td>0.219</td><td>0.275</td><td>0.164</td></tr>
+              <tr><td>SD only (Patent-BERT cosine)</td><td>0.216</td><td>0.270</td><td>0.168</td></tr>
             </tbody>
           </table>
+          <p class="text-sm">796 patents, 1,549 examiner/applicant citations inside the index (<code>finetune/evaluate.py</code>).</p>
         </div>
       </div>
     </footer>

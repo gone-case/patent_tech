@@ -14,7 +14,9 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-from flask import Flask, request, jsonify, render_template, send_file
+import json
+
+from flask import Flask, Response, request, jsonify, render_template, send_file, stream_with_context
 from werkzeug.utils import secure_filename
 
 # Ensure agents and modules are in path
@@ -55,44 +57,79 @@ def health():
     })
 
 
+def read_search_request():
+    """
+    Parses either:
+    1. Multipart/form-data with 'file' (or 'query'), 'custom_ipc', 'top_k', 'review'
+    2. JSON payload with 'query', 'custom_ipc', 'top_k', 'review'
+    Returns (query, custom_ipc, top_k, review).
+    """
+    custom_ipc = None
+    if request.content_type and "multipart/form-data" in request.content_type:
+        # File Upload Form
+        top_k = int(request.form.get("top_k", 5))
+        review = request.form.get("review", "").lower() in ("1", "true", "on")
+        ipc_str = request.form.get("custom_ipc", "")
+        if ipc_str:
+            custom_ipc = [c.strip().upper() for c in ipc_str.split(",") if c.strip()]
+
+        if "file" in request.files and request.files["file"].filename:
+            uploaded_file = request.files["file"]
+            filename = secure_filename(uploaded_file.filename)
+            save_path = os.path.join(UPLOAD_FOLDER, filename)
+            uploaded_file.save(save_path)
+            query_val = save_path
+        else:
+            query_val = request.form.get("query", "").strip()
+    else:
+        # JSON Payload
+        data = request.get_json(force=True, silent=True) or {}
+        query_val = data.get("query", "").strip()
+        top_k = int(data.get("top_k", 5))
+        review = bool(data.get("review"))
+        ipc_str = data.get("custom_ipc")
+        if isinstance(ipc_str, list):
+            custom_ipc = [c.strip().upper() for c in ipc_str if c.strip()]
+        elif isinstance(ipc_str, str) and ipc_str.strip():
+            custom_ipc = [c.strip().upper() for c in ipc_str.split(",") if c.strip()]
+    return query_val, custom_ipc, top_k, review
+
+
+def ndjson_stream(events):
+    """One JSON object per line, flushed as each agent finishes, so the UI can show the steps live."""
+    for ev in events:
+        yield json.dumps(ev, default=str) + "\n"
+
+
+@app.route("/api/agent/search", methods=["POST"])
+def agent_search():
+    """LangGraph multi-agent search, streamed as NDJSON events (see graph/runner.py)."""
+    from graph import start_search
+    query_val, custom_ipc, top_k, review = read_search_request()
+    if not query_val:
+        return jsonify({"error": "Please provide either an uploaded document, a patent ID, or an invention query."}), 400
+    events = start_search(query_val, custom_ipc, top_k, review)
+    return Response(stream_with_context(ndjson_stream(events)), mimetype="application/x-ndjson")
+
+
+@app.route("/api/agent/resume", methods=["POST"])
+def agent_resume():
+    """Continues a run paused for human review with the user's edited features / CPC codes."""
+    from graph import resume_search
+    data = request.get_json(force=True, silent=True) or {}
+    if not data.get("thread_id"):
+        return jsonify({"error": "thread_id is required"}), 400
+    edits = {k: data[k] for k in ("features", "cpc_codes") if k in data}
+    events = resume_search(data["thread_id"], edits)
+    return Response(stream_with_context(ndjson_stream(events)), mimetype="application/x-ndjson")
+
+
 @app.route("/api/search", methods=["POST"])
 def search():
-    """
-    Unified search endpoint. Accepts either:
-    1. Multipart/form-data with 'file', 'custom_ipc', 'top_k'
-    2. JSON payload with 'query', 'custom_ipc', 'top_k'
-    """
+    """Classic pipeline: Harvester -> Retrieval -> Analyst, no LLM."""
     try:
         orchestrator = get_orchestrator()
-        custom_ipc = None
-        top_k = 5
-        query_val = None
-
-        if request.content_type and "multipart/form-data" in request.content_type:
-            # File Upload Form
-            top_k = int(request.form.get("top_k", 5))
-            ipc_str = request.form.get("custom_ipc", "")
-            if ipc_str:
-                custom_ipc = [c.strip().upper() for c in ipc_str.split(",") if c.strip()]
-
-            if "file" in request.files and request.files["file"].filename:
-                uploaded_file = request.files["file"]
-                filename = secure_filename(uploaded_file.filename)
-                save_path = os.path.join(UPLOAD_FOLDER, filename)
-                uploaded_file.save(save_path)
-                query_val = save_path
-            else:
-                query_val = request.form.get("query", "").strip()
-        else:
-            # JSON Payload
-            data = request.get_json(force=True, silent=True) or {}
-            query_val = data.get("query", "").strip()
-            top_k = int(data.get("top_k", 5))
-            ipc_str = data.get("custom_ipc")
-            if isinstance(ipc_str, list):
-                custom_ipc = [c.strip().upper() for c in ipc_str if c.strip()]
-            elif isinstance(ipc_str, str) and ipc_str.strip():
-                custom_ipc = [c.strip().upper() for c in ipc_str.split(",") if c.strip()]
+        query_val, custom_ipc, top_k, _ = read_search_request()
 
         if not query_val:
             return jsonify({"error": "Please provide either an uploaded document, a patent ID, or an invention query."}), 400

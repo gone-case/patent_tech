@@ -12,3 +12,6 @@ pyarrow
 datasets
 flask
 gunicorn
+langgraph
+langchain-google-genai
+google-auth

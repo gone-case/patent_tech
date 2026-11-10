@@ -22,6 +22,12 @@ prior_art_report.md
 # Uploaded files (user uploads at runtime)
 uploads/
 
+# Pulled / derived data (rebuild with pull_google_patents.py and finetune/build_pairs.py)
+data/
+
+# Generated search reports
+*.docx
+
 # OS
 .DS_Store
 Thumbs.db

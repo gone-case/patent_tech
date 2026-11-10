@@ -3,13 +3,14 @@ RetrievalAgent:
 High-speed candidate search using FAISS dense vector indices.
 Retrieves the Top-K semantically closest patents (SD) from millions of candidates in milliseconds.
 """
+import json
 import os
 import numpy as np
 import pandas as pd
 import faiss
 import torch
 from typing import List, Dict, Tuple, Optional
-from train_models.sbert import Sentence_Bert
+from train_models.sbert import Sentence_Bert, DEFAULT_ENCODER
 
 
 class RetrievalAgent:
@@ -27,17 +28,29 @@ class RetrievalAgent:
 
         self.index: Optional[faiss.Index] = None
         self.metadata: List[Dict] = []
+        self.row_of: Dict[str, int] = {}
         self._sbert: Optional[Sentence_Bert] = None
 
         # Lazy-loaded on demand
         self._index_initialized = False
 
     @property
+    def encoder_name(self) -> str:
+        """PATENT_ENCODER env var, else the encoder recorded next to the index (<index>.json), else Patent-BERT."""
+        if os.environ.get("PATENT_ENCODER"):
+            return os.environ["PATENT_ENCODER"]
+        sidecar = self.index_path + ".json"
+        if os.path.exists(sidecar):
+            with open(sidecar, encoding="utf-8") as f:
+                return json.load(f).get("encoder", DEFAULT_ENCODER)
+        return DEFAULT_ENCODER
+
+    @property
     def sbert(self) -> Sentence_Bert:
         """Lazy loader for Patent-BERT encoder."""
         if self._sbert is None:
-            print(f"[{self.name}] Initializing Patent-BERT embedding engine on {self.device}...")
-            self._sbert = Sentence_Bert(device=self.device).eval()
+            print(f"[{self.name}] Initializing Patent-BERT embedding engine ({self.encoder_name}) on {self.device}...")
+            self._sbert = Sentence_Bert(device=self.device, model_name=self.encoder_name).eval()
         return self._sbert
 
     def ensure_index_ready(self, max_samples: Optional[int] = 50):
@@ -51,6 +64,7 @@ class RetrievalAgent:
             meta_df = pd.read_parquet(self.meta_path)
             self.metadata = meta_df.to_dict(orient="records")
             self._normalize_metadata_codes()
+            self.row_of = {rec["patent_id"]: i for i, rec in enumerate(self.metadata)}
             print(f"[{self.name}] Vector index active with {self.index.ntotal} indexed patents.")
         else:
             print(f"[{self.name}] Warning: No index found. Build one with the Colab notebook or build_google_patents_index.py.")
@@ -94,32 +108,54 @@ class RetrievalAgent:
                 ).to(self.device)
                 
                 outputs = self.sbert.bert(**tok)
-                # Mean pooling across tokens
-                pooled = torch.mean(outputs.last_hidden_state, dim=1)
+                # Mean pooling over real tokens (padding excluded)
+                mask = tok["attention_mask"].unsqueeze(-1).to(outputs.last_hidden_state.dtype)
+                pooled = (outputs.last_hidden_state * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
                 all_embeds.append(pooled.cpu().numpy().astype(np.float32))
 
         return np.vstack(all_embeds)
+
+    def embed_queries(self, texts: List[str]) -> np.ndarray:
+        """L2-normalized query vectors, ready for inner-product search."""
+        vecs = self.encode_texts(texts)
+        faiss.normalize_L2(vecs)
+        return vecs
+
+    def search_vectors(self, query_vecs: np.ndarray, top_k: int = 5) -> List[List[Dict]]:
+        """One candidate list per query vector, each with its cosine similarity (SD)."""
+        self.ensure_index_ready()
+        if self.index is None or self.index.ntotal == 0:
+            raise RuntimeError("FAISS index is not initialized or empty.")
+
+        k = min(top_k, self.index.ntotal)
+        scores, indices = self.index.search(query_vecs, k)
+        results = []
+        for s_row, i_row in zip(scores, indices):
+            candidates = []
+            for score, idx in zip(s_row, i_row):
+                if idx != -1 and idx < len(self.metadata):
+                    item = dict(self.metadata[idx])
+                    item["sd_score"] = float(score)  # Cosine similarity in range [-1, 1]
+                    candidates.append(item)
+            results.append(candidates)
+        return results
+
+    def similarity_to(self, query_vec: np.ndarray, patent_ids: List[str]) -> List[Dict]:
+        """Indexed patents by ID with their cosine similarity to query_vec (IDs not in the index are skipped)."""
+        self.ensure_index_ready()
+        found = []
+        for pid in patent_ids:
+            row = self.row_of.get(pid)
+            if row is None:
+                continue
+            item = dict(self.metadata[row])
+            item["sd_score"] = float(np.dot(self.index.reconstruct(row), query_vec))
+            found.append(item)
+        return found
 
     def retrieve(self, query_text: str, top_k: int = 5) -> List[Dict]:
         """
         Retrieves the Top-K semantically closest patents for a given query text.
         Returns candidates with raw semantic similarity (SD) score.
         """
-        self.ensure_index_ready()
-        if self.index is None or self.index.ntotal == 0:
-            raise RuntimeError("FAISS index is not initialized or empty.")
-
-        query_vec = self.encode_texts([query_text])
-        faiss.normalize_L2(query_vec)
-
-        k = min(top_k, self.index.ntotal)
-        scores, indices = self.index.search(query_vec, k)
-
-        candidates = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx != -1 and idx < len(self.metadata):
-                item = dict(self.metadata[idx])
-                item["sd_score"] = float(score)  # Cosine similarity in range [-1, 1]
-                candidates.append(item)
-
-        return candidates
+        return self.search_vectors(self.embed_queries([query_text]), top_k)[0]
